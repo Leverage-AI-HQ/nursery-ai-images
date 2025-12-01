@@ -24,15 +24,15 @@ load_dotenv()
 openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 replicate_client = replicate.Client(api_token=os.getenv('REPLICATE_API_TOKEN'))
 
-def create_extended_canvas_and_mask(image, target_width=1824):
+def create_extended_canvas_and_mask(image, aspect_ratio="16:9"):
     """
-    Extend image canvas horizontally to target width (16:9 ratio).
+    Extend image canvas to target aspect ratio.
     Create a mask where white = areas to fill, black = original image area.
     Use blurred edges from the original image as the background.
 
     Args:
-        image: PIL Image object (1536x1024)
-        target_width: Target width for 16:9 ratio (default: 1824)
+        image: PIL Image object (1536x1024 for 16:9, or 1024x1536 for 9:16)
+        aspect_ratio: Target aspect ratio - "16:9" for horizontal, "9:16" for vertical
 
     Returns:
         tuple: (extended_image, mask_image)
@@ -41,22 +41,37 @@ def create_extended_canvas_and_mask(image, target_width=1824):
 
     original_width, original_height = image.size
 
-    # Calculate extension needed on each side
-    extension = (target_width - original_width) // 2
+    # Determine target dimensions based on aspect ratio
+    if aspect_ratio == "16:9":
+        # Horizontal extension: 1536x1024 -> 1824x1024
+        target_width = 1824
+        target_height = original_height
+        extension = (target_width - original_width) // 2
+        paste_position = (extension, 0)
+        target_size = (target_width, target_height)
+    elif aspect_ratio == "9:16":
+        # Vertical extension: 1024x1536 -> 1024x1824
+        target_width = original_width
+        target_height = 1824
+        extension = (target_height - original_height) // 2
+        paste_position = (0, extension)
+        target_size = (target_width, target_height)
+    else:
+        raise ValueError(f"Unsupported aspect ratio: {aspect_ratio}")
 
     # Create blurred version of the image to use as background
     blurred = image.filter(ImageFilter.GaussianBlur(radius=20))
 
     # Create new canvas by stretching the blurred image
-    extended_canvas = blurred.resize((target_width, original_height))
+    extended_canvas = blurred.resize(target_size)
 
     # Paste original image in the center (this will be preserved)
-    extended_canvas.paste(image, (extension, 0))
+    extended_canvas.paste(image, paste_position)
 
     # Create mask: white for areas to fill, black for original image
-    mask = Image.new('L', (target_width, original_height), color='white')
+    mask = Image.new('L', target_size, color='white')
     black_box = Image.new('L', (original_width, original_height), color='black')
-    mask.paste(black_box, (extension, 0))
+    mask.paste(black_box, paste_position)
 
     return extended_canvas, mask
 
@@ -103,14 +118,15 @@ def extend_with_flux_fill(extended_canvas, mask, prompt):
 
     return result_image
 
-def generate_images_from_csv(csv_file_path, output_dir='generated_images', max_lines=None):
+def generate_images_from_csv(csv_file_path, output_dir='generated_images', max_lines=None, aspect_ratio="16:9"):
     """
-    Read prompts from CSV and generate 16:9 images using GPT-Image-1 + Flux Fill Pro.
+    Read prompts from CSV and generate images using GPT-Image-1 + Flux Fill Pro.
 
     Args:
         csv_file_path: Path to the CSV file containing prompts
         output_dir: Directory where generated images will be saved
         max_lines: Maximum number of lines to process (None = process all)
+        aspect_ratio: Target aspect ratio - "16:9" (landscape) or "9:16" (portrait)
     """
     # Create output directory if it doesn't exist
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -137,12 +153,20 @@ def generate_images_from_csv(csv_file_path, output_dir='generated_images', max_l
             print(f"\nProcessing line {line_number}: {prompt[:60]}...")
 
             try:
+                # Determine image size based on aspect ratio
+                if aspect_ratio == "16:9":
+                    image_size = "1536x1024"  # Landscape
+                elif aspect_ratio == "9:16":
+                    image_size = "1024x1536"  # Portrait
+                else:
+                    raise ValueError(f"Unsupported aspect ratio: {aspect_ratio}")
+
                 # Step 1: Generate image using GPT-Image-1
-                print(f"  [1/3] Generating base image with GPT-Image-1...")
+                print(f"  [1/3] Generating base image with GPT-Image-1 ({image_size})...")
                 response = openai_client.images.generate(
                     model="gpt-image-1",
                     prompt=prompt,
-                    size="1536x1024",
+                    size=image_size,
                     quality="high",
                     n=1
                 )
@@ -152,9 +176,9 @@ def generate_images_from_csv(csv_file_path, output_dir='generated_images', max_l
                 image_bytes = base64.b64decode(image_base64)
                 base_image = Image.open(io.BytesIO(image_bytes))
 
-                print(f"  [2/3] Extending canvas to 16:9 and creating mask...")
+                print(f"  [2/3] Extending canvas to {aspect_ratio} and creating mask...")
                 # Step 2: Extend canvas and create mask
-                extended_canvas, mask = create_extended_canvas_and_mask(base_image)
+                extended_canvas, mask = create_extended_canvas_and_mask(base_image, aspect_ratio=aspect_ratio)
 
                 # Debug: Save canvas and mask for inspection
                 debug_dir = Path(output_dir) / 'debug'
@@ -166,11 +190,11 @@ def generate_images_from_csv(csv_file_path, output_dir='generated_images', max_l
                 # Step 3: Use Flux Fill Pro to fill the edges
                 final_image = extend_with_flux_fill(extended_canvas, mask, prompt)
 
-                # Save the final 16:9 image
+                # Save the final image
                 image_path = Path(output_dir) / f"{line_number}.png"
                 final_image.save(image_path, format='PNG')
 
-                print(f"✓ Saved 16:9 image {line_number} to {image_path}")
+                print(f"✓ Saved {aspect_ratio} image {line_number} to {image_path}")
                 processed_count += 1
 
             except Exception as e:
@@ -182,13 +206,20 @@ if __name__ == "__main__":
 
     # Set up argument parser
     parser = argparse.ArgumentParser(
-        description='Generate 16:9 images from CSV prompts using GPT-Image-1 and Flux Fill Pro'
+        description='Generate images from CSV prompts using GPT-Image-1 and Flux Fill Pro'
     )
     parser.add_argument(
         'csv_file',
         nargs='?',
         default='input.csv',
         help='Path to CSV file containing prompts (default: input.csv)'
+    )
+    parser.add_argument(
+        '--aspect-ratio',
+        type=str,
+        choices=['16:9', '9:16'],
+        default='16:9',
+        help='Aspect ratio for generated images: 16:9 (landscape) or 9:16 (portrait) (default: 16:9)'
     )
     parser.add_argument(
         '--limit',
@@ -206,11 +237,21 @@ if __name__ == "__main__":
         exit(1)
 
     # Print start message
-    print(f"Starting 16:9 image generation from {args.csv_file}")
+    aspect_ratio = args.aspect_ratio
+    print(f"Starting {aspect_ratio} image generation from {args.csv_file}")
     if args.limit:
         print(f"Limiting to {args.limit} image(s)")
-    print("Process: GPT-Image-1 (1536x1024) → Canvas Extension → Flux Fill Pro → 16:9 Output\n")
+
+    # Determine sizes for display message
+    if aspect_ratio == "16:9":
+        base_size = "1536x1024"
+        final_size = "1824x1024"
+    else:  # 9:16
+        base_size = "1024x1536"
+        final_size = "1024x1824"
+
+    print(f"Process: GPT-Image-1 ({base_size}) → Canvas Extension → Flux Fill Pro → {aspect_ratio} Output ({final_size})\n")
 
     # Generate images
-    generate_images_from_csv(args.csv_file, max_lines=args.limit)
+    generate_images_from_csv(args.csv_file, max_lines=args.limit, aspect_ratio=aspect_ratio)
     print("\nImage generation complete!")

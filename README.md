@@ -2,18 +2,23 @@
 
 **Part of the Leverage AI Nursery Rhyme Production System**
 
-This tool turns your image ideas into beautiful, wide-screen pictures perfect for videos. Just write what you want to see, and AI creates it for you!
+This tool turns your image ideas into beautiful pictures perfect for any video format - landscape for YouTube or portrait for TikTok and Instagram! Just write what you want to see, and AI creates it for you in the perfect size.
 
 ---
 
 ## 🤔 What Does This Do?
 
-This script reads a list of image descriptions from a simple text file and automatically creates high-quality pictures. Here's the magic behind it:
+This script reads a list of image descriptions from a simple text file and automatically creates high-quality pictures in the perfect size for videos. Here's the magic behind it:
 
+**For Landscape (16:9) - Default:**
 1. **Step 1:** AI creates your image (1536×1024 pixels)
-2. **Step 2:** AI extends it to make it wider (1824×1024 pixels) - perfect for 16:9 videos!
+2. **Step 2:** AI extends it horizontally (1824×1024 pixels) - perfect for YouTube videos!
 
-Think of it like this: the AI makes your picture, then smartly adds more content on the left and right sides to make it fit perfectly in widescreen format.
+**For Portrait (9:16) - Social Media:**
+1. **Step 1:** AI creates your image (1024×1536 pixels)
+2. **Step 2:** AI extends it vertically (1024×1824 pixels) - perfect for TikTok, Instagram Reels, YouTube Shorts!
+
+Think of it like this: the AI makes your picture, then smartly adds more content around the edges to make it fit perfectly in your chosen format.
 
 ---
 
@@ -23,6 +28,7 @@ After running the script, you'll find your images here:
 
 - **`generated_images/`** - Your finished pictures ready to use!
   - Files are named `1.png`, `2.png`, `3.png`, etc. (matching the line numbers in your prompt file)
+  - Size will be 1824×1024 for landscape (16:9) or 1024×1824 for portrait (9:16)
 
 - **`generated_images/debug/`** - Behind-the-scenes files (optional to look at)
   - Canvas and mask files used during the generation process
@@ -68,13 +74,21 @@ Children playing in a colorful playground
 
 ## 💡 How to Use It
 
-### Generate All Your Images
+### Generate All Your Images (Landscape - Default)
 
 ```bash
 python nursery_ai.py
 ```
 
-This reads `input.csv` and creates all the images.
+This reads `input.csv` and creates all images in 16:9 landscape format.
+
+### Generate Portrait Images for Social Media
+
+```bash
+python nursery_ai.py --aspect-ratio 9:16
+```
+
+Perfect for TikTok, Instagram Reels, and YouTube Shorts!
 
 ### Use a Different File
 
@@ -95,8 +109,18 @@ This creates only the first 5 images - perfect for making sure everything works!
 ### Combine Options
 
 ```bash
-python nursery_ai.py my_prompts.csv --limit 3
+# Portrait images with custom CSV and limit
+python nursery_ai.py my_prompts.csv --aspect-ratio 9:16 --limit 3
+
+# Landscape with limit
+python nursery_ai.py --limit 10
 ```
+
+### All Options
+
+- `csv_file` - Path to your CSV file (default: `input.csv`)
+- `--aspect-ratio` - Choose `16:9` (landscape) or `9:16` (portrait) (default: `16:9`)
+- `--limit N` - Generate only the first N images (for testing)
 
 ### Need Help?
 
